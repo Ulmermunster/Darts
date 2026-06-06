@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Darts Tracker</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --card: #0f3460;
+    --accent: #e94560;
+    --accent2: #f5a623;
+    --text: #eaeaea;
+    --muted: #8892a4;
+    --green: #4caf50;
+    --radius: 12px;
+    --font: 'Segoe UI', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100dvh; display: flex; flex-direction: column; align-items: center; }
+
+  /* --- Screens --- */
+  .screen { display: none; width: 100%; max-width: 480px; padding: 20px; flex-direction: column; gap: 16px; animation: fadeIn .2s ease; }
+  .screen.active { display: flex; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  /* --- Common --- */
+  h1 { font-size: 2.2rem; font-weight: 800; text-align: center; letter-spacing: -1px; }
+  h2 { font-size: 1.3rem; font-weight: 700; }
+  .subtitle { text-align: center; color: var(--muted); font-size: .95rem; }
+  .dart-icon { font-size: 3rem; text-align: center; }
+
+  button { cursor: pointer; border: none; border-radius: var(--radius); font-family: var(--font); font-size: 1rem; font-weight: 600; padding: 14px 20px; transition: transform .1s, opacity .1s; }
+  button:active { transform: scale(.97); opacity: .85; }
+
+  .btn-primary { background: var(--accent); color: #fff; width: 100%; }
+  .btn-secondary { background: var(--card); color: var(--text); width: 100%; }
+  .btn-outline { background: transparent; border: 2px solid var(--muted); color: var(--muted); padding: 10px 16px; font-size: .9rem; }
+  .btn-sm { padding: 8px 14px; font-size: .85rem; }
+  .btn-green { background: var(--green); color: #fff; width: 100%; }
+
+  input[type=text], input[type=number] {
+    background: var(--surface); border: 2px solid var(--card); border-radius: var(--radius);
+    color: var(--text); font-size: 1.1rem; padding: 14px 16px; width: 100%;
+    outline: none; transition: border-color .2s;
+  }
+  input:focus { border-color: var(--accent); }
+  label { font-size: .9rem; color: var(--muted); margin-bottom: 4px; display: block; }
+
+  .card { background: var(--surface); border-radius: var(--radius); padding: 16px; }
+  .row { display: flex; gap: 12px; align-items: center; }
+  .col { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+
+  /* --- Home screen --- */
+  .mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .mode-card {
+    background: var(--surface); border-radius: var(--radius); padding: 20px 12px;
+    text-align: center; cursor: pointer; border: 2px solid transparent;
+    transition: border-color .2s, transform .1s;
+  }
+  .mode-card:hover, .mode-card:active { border-color: var(--accent); transform: scale(.98); }
+  .mode-card .mode-icon { font-size: 2rem; margin-bottom: 8px; }
+  .mode-card .mode-name { font-weight: 700; font-size: 1rem; }
+  .mode-card .mode-desc { font-size: .78rem; color: var(--muted); margin-top: 4px; }
+
+  /* --- Scoreboard (501/301) --- */
+  .scoreboard { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .player-card {
+    background: var(--surface); border-radius: var(--radius); padding: 16px;
+    text-align: center; border: 3px solid transparent; transition: border-color .25s;
+    position: relative;
+  }
+  .player-card.active { border-color: var(--accent); }
+  .player-card.winner { border-color: var(--green); background: #1a3a1a; }
+  .player-name { font-size: .95rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+  .player-score { font-size: 3.2rem; font-weight: 800; line-height: 1; margin: 8px 0; }
+  .player-score.low { color: var(--accent); }
+  .player-legs { font-size: .8rem; color: var(--muted); }
+  .turn-badge {
+    position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
+    background: var(--accent); color: #fff; font-size: .7rem; font-weight: 700;
+    padding: 2px 10px; border-radius: 99px; letter-spacing: 1px; text-transform: uppercase;
+  }
+
+  .input-area { background: var(--surface); border-radius: var(--radius); padding: 16px; }
+  .current-player-label { font-size: .85rem; color: var(--muted); margin-bottom: 8px; }
+  .current-player-name { font-weight: 700; color: var(--accent); font-size: 1.1rem; }
+
+  .numpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+  .numpad button { background: var(--card); color: var(--text); font-size: 1.3rem; font-weight: 700; padding: 18px; border-radius: 10px; }
+  .numpad button.btn-del { background: #3a1a1a; color: var(--accent); }
+  .numpad button.btn-ok { background: var(--accent); color: #fff; }
+
+  .score-display-input {
+    background: var(--card); border-radius: 10px; padding: 16px;
+    font-size: 2rem; font-weight: 800; text-align: center; min-height: 64px;
+    display: flex; align-items: center; justify-content: center; letter-spacing: 2px;
+    color: var(--text); margin-bottom: 8px;
+  }
+  .score-display-input.empty { color: var(--muted); }
+
+  .bust-msg { color: var(--accent); font-weight: 700; text-align: center; font-size: .95rem; animation: shake .3s; }
+  @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }
+
+  .history { max-height: 140px; overflow-y: auto; }
+  .history-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #ffffff0f; font-size: .88rem; color: var(--muted); }
+  .history-row span:first-child { color: var(--text); font-weight: 600; }
+
+  .toolbar { display: flex; gap: 8px; justify-content: flex-end; }
+
+  /* --- Cricket --- */
+  .cricket-board { background: var(--surface); border-radius: var(--radius); overflow: hidden; }
+  .cricket-header { display: grid; grid-template-columns: 1fr 60px 1fr; background: var(--card); padding: 10px 12px; text-align: center; font-weight: 700; font-size: .95rem; gap: 4px; }
+  .cricket-row { display: grid; grid-template-columns: 1fr 60px 1fr; padding: 10px 12px; border-bottom: 1px solid #ffffff0a; align-items: center; text-align: center; }
+  .cricket-row:last-child { border-bottom: none; }
+  .cricket-target { font-size: 1.2rem; font-weight: 800; color: var(--accent2); }
+  .cricket-target.bull { color: var(--accent); }
+  .cricket-marks { font-size: 1.1rem; letter-spacing: 2px; }
+  .cricket-marks.closed { color: var(--green); }
+  .cricket-pts { font-weight: 700; font-size: 1rem; }
+  .cricket-score-header { font-size: 1.5rem; font-weight: 800; }
+
+  .cricket-input-area { background: var(--surface); border-radius: var(--radius); padding: 16px; }
+  .marks-selector { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0; }
+  .mark-btn { background: var(--card); color: var(--text); font-size: 1rem; font-weight: 700; padding: 12px 0; border-radius: 8px; }
+  .mark-btn.selected { background: var(--accent); color: #fff; }
+  .target-selector { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 8px 0; }
+  .target-btn { background: var(--card); color: var(--text); font-size: .95rem; font-weight: 700; padding: 12px 0; border-radius: 8px; }
+  .target-btn.closed-me { background: #1a3a1a; color: var(--green); }
+  .target-btn.closed-both { background: #2a2a2a; color: #555; }
+
+  /* --- Around the Clock --- */
+  .atc-targets { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .atc-num {
+    background: var(--card); border-radius: 8px; padding: 12px 0; text-align: center;
+    font-weight: 700; font-size: 1rem; border: 2px solid transparent;
+  }
+  .atc-num.hit { background: var(--green); color: #fff; border-color: var(--green); }
+  .atc-num.current-p1 { border-color: var(--accent); }
+  .atc-num.current-p2 { border-color: var(--accent2); }
+  .atc-num.current-both { border-color: #fff; }
+  .atc-players { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .atc-player { background: var(--surface); border-radius: var(--radius); padding: 16px; text-align: center; border: 3px solid transparent; }
+  .atc-player.active { border-color: var(--accent); }
+  .atc-player .atc-target { font-size: 3rem; font-weight: 800; line-height: 1; }
+  .atc-player .atc-label { font-size: .8rem; color: var(--muted); margin-top: 4px; }
+
+  /* --- Instructions --- */
+  .rules-content { background: var(--surface); border-radius: var(--radius); padding: 16px; max-height: 65dvh; overflow-y: auto; }
+  .rules-content h3 { color: var(--accent2); margin: 16px 0 8px; font-size: 1rem; }
+  .rules-content p, .rules-content li { font-size: .9rem; color: var(--muted); line-height: 1.6; }
+  .rules-content ul { padding-left: 18px; }
+  .rules-content li { margin-bottom: 4px; }
+  .rules-content .tip { background: var(--card); border-left: 3px solid var(--accent); padding: 10px 12px; border-radius: 0 8px 8px 0; margin: 8px 0; }
+
+  /* --- Winner --- */
+  .winner-screen { text-align: center; }
+  .winner-name { font-size: 2.5rem; font-weight: 800; color: var(--accent2); margin: 8px 0; }
+  .confetti { font-size: 3rem; animation: spin 1s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* --- Nav bar --- */
+  .top-bar { display: flex; align-items: center; justify-content: space-between; width: 100%; max-width: 480px; padding: 16px 20px 0; }
+  .top-bar h2 { font-size: 1rem; color: var(--muted); }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: var(--card); border-radius: 99px; }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR (shown during games) -->
+<div class="top-bar" id="topBar" style="display:none;">
+  <button class="btn-outline btn-sm" onclick="goHome()">&#8592; New Game</button>
+  <h2 id="topBarTitle"></h2>
+  <button class="btn-outline btn-sm" onclick="showRules()">Rules</button>
+</div>
+
+<!-- HOME SCREEN -->
+<div class="screen active" id="screenHome">
+  <div style="padding-top:12px">
+    <div class="dart-icon">🎯</div>
+    <h1>Darts Tracker</h1>
+    <p class="subtitle">Choose a game to play</p>
+  </div>
+  <div class="mode-grid">
+    <div class="mode-card" onclick="selectMode('501')">
+      <div class="mode-icon">5️⃣0️⃣1️⃣</div>
+      <div class="mode-name">501</div>
+      <div class="mode-desc">Count down from 501. Finish on a double.</div>
+    </div>
+    <div class="mode-card" onclick="selectMode('301')">
+      <div class="mode-icon">3️⃣0️⃣1️⃣</div>
+      <div class="mode-name">301</div>
+      <div class="mode-desc">Shorter game. Count down from 301.</div>
+    </div>
+    <div class="mode-card" onclick="selectMode('cricket')">
+      <div class="mode-icon">🏏</div>
+      <div class="mode-name">Cricket</div>
+      <div class="mode-desc">Close 15–20 and Bull before your opponent.</div>
+    </div>
+    <div class="mode-card" onclick="selectMode('atc')">
+      <div class="mode-icon">🕐</div>
+      <div class="mode-name">Around the Clock</div>
+      <div class="mode-desc">Hit 1–20 in order. First to finish wins.</div>
+    </div>
+  </div>
+  <button class="btn-outline" onclick="showRulesHome()">📖 How to Play (All Games)</button>
+</div>
+
+<!-- SETUP SCREEN -->
+<div class="screen" id="screenSetup">
+  <h2 id="setupTitle">Game Setup</h2>
+  <div class="col">
+    <label>Player 1 Name</label>
+    <input type="text" id="p1Name" placeholder="e.g. Your Name" maxlength="16">
+  </div>
+  <div class="col">
+    <label>Player 2 Name</label>
+    <input type="text" id="p2Name" placeholder="e.g. Wife's Name" maxlength="16">
+  </div>
+  <button class="btn-primary" onclick="startGame()">Start Game</button>
+  <button class="btn-outline" onclick="showScreen('screenHome')">Back</button>
+</div>
+
+<!-- GAME SCREEN: 501 / 301 -->
+<div class="screen" id="screenCountdown">
+  <div class="scoreboard" id="cdScoreboard"></div>
+
+  <div class="input-area">
+    <div class="current-player-label">Current turn: <span class="current-player-name" id="cdCurrentName"></span></div>
+    <div class="score-display-input empty" id="cdDisplay">—</div>
+    <div id="cdBust" class="bust-msg" style="display:none"></div>
+    <div class="numpad" id="cdNumpad">
+      <button onclick="numpad('1')">1</button>
+      <button onclick="numpad('2')">2</button>
+      <button onclick="numpad('3')">3</button>
+      <button onclick="numpad('4')">4</button>
+      <button onclick="numpad('5')">5</button>
+      <button onclick="numpad('6')">6</button>
+      <button onclick="numpad('7')">7</button>
+      <button onclick="numpad('8')">8</button>
+      <button onclick="numpad('9')">9</button>
+      <button onclick="numpad('0')">0</button>
+      <button class="btn-del" onclick="numpadDel()">⌫</button>
+      <button class="btn-ok" onclick="submitScore()">✓</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between; margin-bottom:8px">
+      <span style="font-size:.85rem;color:var(--muted);">Round History</span>
+    </div>
+    <div class="history" id="cdHistory"></div>
+  </div>
+</div>
+
+<!-- GAME SCREEN: Cricket -->
+<div class="screen" id="screenCricket">
+  <div class="cricket-board" id="cricketBoard"></div>
+
+  <div class="cricket-input-area" id="cricketInput">
+    <div class="current-player-label">Throwing: <span class="current-player-name" id="cktCurrentName"></span></div>
+    <div style="font-size:.85rem;color:var(--muted);margin-bottom:4px;">How many marks this throw?</div>
+    <div class="marks-selector" id="marksSelector">
+      <button class="mark-btn" onclick="selectMarks(1)">1</button>
+      <button class="mark-btn" onclick="selectMarks(2)">2</button>
+      <button class="mark-btn" onclick="selectMarks(3)">3</button>
+      <button class="mark-btn btn-del" onclick="selectMarks(0)" style="background:var(--card);font-size:.8rem;">Miss</button>
+    </div>
+    <div style="font-size:.85rem;color:var(--muted);margin:8px 0 4px;">Which number did you hit?</div>
+    <div class="target-selector" id="cricketTargets"></div>
+    <button class="btn-primary" id="cktSubmitBtn" onclick="submitCricketThrow()" style="margin-top:8px" disabled>Submit Throw</button>
+  </div>
+</div>
+
+<!-- GAME SCREEN: Around the Clock -->
+<div class="screen" id="screenATC">
+  <div class="atc-players" id="atcPlayers"></div>
+  <div class="card">
+    <div class="current-player-label" style="margin-bottom:8px">Current turn: <span class="current-player-name" id="atcCurrentName"></span></div>
+    <div style="font-size:.88rem;color:var(--muted);margin-bottom:10px;" id="atcInstruction"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-primary" style="flex:1" onclick="atcHit()">Hit! ✓</button>
+      <button class="btn-secondary" style="flex:1" onclick="atcMiss()">Miss ✗</button>
+    </div>
+  </div>
+  <div class="card">
+    <div style="font-size:.85rem;color:var(--muted);margin-bottom:8px;">Progress</div>
+    <div class="atc-targets" id="atcGrid"></div>
+  </div>
+</div>
+
+<!-- RULES / INSTRUCTIONS SCREEN -->
+<div class="screen" id="screenRules">
+  <div class="row" style="justify-content:space-between;align-items:center">
+    <h2 id="rulesTitle">How to Play</h2>
+    <button class="btn-outline btn-sm" id="rulesBackBtn" onclick="rulesBack()">← Back</button>
+  </div>
+  <div class="rules-content" id="rulesContent"></div>
+</div>
+
+<!-- WINNER SCREEN -->
+<div class="screen winner-screen" id="screenWinner">
+  <div class="dart-icon">🎯</div>
+  <div style="font-size:1.1rem;color:var(--muted)">Winner!</div>
+  <div class="winner-name" id="winnerName"></div>
+  <div id="winnerDetails" style="color:var(--muted);font-size:.95rem;margin:8px 0"></div>
+  <div style="font-size:2.5rem;margin:16px 0">🏆🎉🥂</div>
+  <button class="btn-primary" onclick="playAgain()">Play Again (Same Settings)</button>
+  <button class="btn-outline" onclick="goHome()">New Game</button>
+</div>
+
+<script>
+// ==================== STATE ====================
+let mode = null;
+let players = [{name:'Player 1'}, {name:'Player 2'}];
+let currentPlayer = 0;
+let rulesFrom = null;
+
+// Countdown (501/301) state
+let cdState = {};
+
+// Cricket state
+let cktState = {};
+let cktSelectedMarks = null;
+let cktSelectedTarget = null;
+const CKT_TARGETS = [20, 19, 18, 17, 16, 15, 'Bull'];
+
+// Around the Clock state
+let atcState = {};
+
+// ==================== NAVIGATION ====================
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  const gameScreens = ['screenCountdown','screenCricket','screenATC'];
+  document.getElementById('topBar').style.display = gameScreens.includes(id) ? 'flex' : 'none';
+}
+
+function goHome() {
+  if (!confirm('Leave current game?')) return;
+  showScreen('screenHome');
+}
+
+function selectMode(m) {
+  mode = m;
+  document.getElementById('setupTitle').textContent = {
+    '501':'501 Setup','301':'301 Setup','cricket':'Cricket Setup','atc':'Around the Clock Setup'
+  }[m];
+  showScreen('screenSetup');
+  document.getElementById('p1Name').focus();
+}
+
+function startGame() {
+  const p1 = document.getElementById('p1Name').value.trim() || 'Player 1';
+  const p2 = document.getElementById('p2Name').value.trim() || 'Player 2';
+  players = [{name: p1}, {name: p2}];
+  currentPlayer = 0;
+
+  document.getElementById('topBarTitle').textContent = {
+    '501':'501','301':'301','cricket':'Cricket','atc':'Around the Clock'
+  }[mode];
+
+  if (mode === '501' || mode === '301') initCountdown();
+  else if (mode === 'cricket') initCricket();
+  else if (mode === 'atc') initATC();
+}
+
+function playAgain() {
+  currentPlayer = 0;
+  if (mode === '501' || mode === '301') initCountdown();
+  else if (mode === 'cricket') initCricket();
+  else if (mode === 'atc') initATC();
+}
+
+// ==================== RULES ====================
+const RULES = {
+  '501': `
+    <h3>Objective</h3>
+    <p>Each player starts with 501 points. Take turns throwing 3 darts and subtract your score. First to reach exactly 0 wins.</p>
+    <h3>The Double Out Rule</h3>
+    <p>To win, your final dart <strong>must</strong> land in a double (the thin outer ring) or the bullseye. You cannot finish on a single.</p>
+    <div class="tip">💡 If you'd end up below 0, or land on 1 (impossible to double out from), it's a <strong>BUST</strong> — your score reverts to what it was before that round.</div>
+    <h3>Scoring</h3>
+    <ul>
+      <li>Single: face value (1–20)</li>
+      <li>Double ring (outer thin ring): 2× the number</li>
+      <li>Triple ring (inner thin ring): 3× the number</li>
+      <li>Bullseye outer (green): 25 points</li>
+      <li>Bullseye inner (red): 50 points</li>
+    </ul>
+    <h3>Max per round</h3>
+    <p>3 triple 20s = 180 points (called a "maximum" or "one-eighty").</p>
+    <div class="tip">💡 Common finish combinations: 170 (T20, T20, Bull), 121 (T20, T11, D20), 40 (D20).</div>
+  `,
+  '301': `
+    <h3>Objective</h3>
+    <p>Same as 501 but starting at 301. A shorter, faster game.</p>
+    <h3>Double Out Rule</h3>
+    <p>Final dart must land in a double or bullseye. Busting reverts your score.</p>
+    <h3>Scoring</h3>
+    <ul>
+      <li>Single: face value (1–20)</li>
+      <li>Double: 2× the number</li>
+      <li>Triple: 3× the number</li>
+      <li>Bull outer: 25, Bull inner: 50</li>
+    </ul>
+    <div class="tip">💡 301 is great for quicker games. Aim for T20 (60 pts) and T19 (57 pts) as your power shots.</div>
+  `,
+  'cricket': `
+    <h3>Objective</h3>
+    <p>Close out the numbers 15, 16, 17, 18, 19, 20, and the Bullseye before your opponent, while scoring as many points as possible.</p>
+    <h3>Closing a Number</h3>
+    <p>You need to hit a number <strong>3 times</strong> to "close" it. A single = 1 mark, a double = 2 marks, a triple = 3 marks (closes immediately).</p>
+    <h3>Scoring Points</h3>
+    <p>Once you've closed a number, every additional hit on that number scores you points — but only if your opponent hasn't closed it yet. Once both players have closed a number, it's dead.</p>
+    <h3>Winning</h3>
+    <p>You win when you've closed all 7 numbers (15–20 + Bull) AND have a score equal to or higher than your opponent.</p>
+    <div class="tip">💡 Strategy: Close the high numbers (20, 19) first — they score more points while your opponent is still open.</div>
+    <h3>Marks legend</h3>
+    <ul>
+      <li>/ = 1 mark</li>
+      <li>X = 2 marks</li>
+      <li>⊗ = closed (3+ marks)</li>
+    </ul>
+  `,
+  'atc': `
+    <h3>Objective</h3>
+    <p>Hit every number from 1 to 20 in order. First player to hit 20 wins!</p>
+    <h3>How It Works</h3>
+    <p>On your turn, you throw all 3 darts. If any dart lands on your current target number, you advance to the next number. You can only advance one number per turn (even if multiple darts hit it).</p>
+    <div class="tip">💡 Variation: Some people allow advancing as many numbers as darts hit (e.g., hit 1, 2, and 3 in one turn = jump to 4). Ask us if you want to try this!</div>
+    <h3>Doubles & Triples</h3>
+    <p>In standard Around the Clock, doubles and triples don't have special meaning — any hit on the target number counts.</p>
+    <h3>Tips</h3>
+    <ul>
+      <li>Focus — even one hit per round is progress</li>
+      <li>Numbers 1–7 are in the top-left cluster of the board</li>
+      <li>20 is at the top, 19 right of top, 18 left of 19...</li>
+    </ul>
+  `
+};
+
+function showRulesHome() {
+  rulesFrom = 'home';
+  let html = '';
+  const titles = {'501':'501 Rules','301':'301 Rules','cricket':'Cricket Rules','atc':'Around the Clock Rules'};
+  for (const k of ['501','301','cricket','atc']) {
+    html += `<h2 style="margin-top:16px;color:var(--accent2)">${titles[k]}</h2>` + RULES[k];
+  }
+  document.getElementById('rulesTitle').textContent = 'How to Play All Games';
+  document.getElementById('rulesContent').innerHTML = html;
+  document.getElementById('topBar').style.display = 'none';
+  showScreen('screenRules');
+}
+
+function showRules() {
+  rulesFrom = 'game';
+  document.getElementById('rulesTitle').textContent = {
+    '501':'501 Rules','301':'301 Rules','cricket':'Cricket Rules','atc':'Around the Clock Rules'
+  }[mode];
+  document.getElementById('rulesContent').innerHTML = RULES[mode];
+  document.getElementById('topBar').style.display = 'none';
+  showScreen('screenRules');
+}
+
+function rulesBack() {
+  if (rulesFrom === 'home') {
+    showScreen('screenHome');
+  } else {
+    document.getElementById('topBar').style.display = 'flex';
+    if (mode === '501' || mode === '301') showScreen('screenCountdown');
+    else if (mode === 'cricket') showScreen('screenCricket');
+    else if (mode === 'atc') showScreen('screenATC');
+  }
+}
+
+// ==================== COUNTDOWN (501 / 301) ====================
+function initCountdown() {
+  const start = mode === '501' ? 501 : 301;
+  cdState = {
+    scores: [start, start],
+    history: [],
+    inputVal: '',
+    bust: false
+  };
+  renderCountdown();
+  showScreen('screenCountdown');
+}
+
+let cdInput = '';
+
+function numpad(digit) {
+  if (cdInput.length >= 3) return;
+  cdInput += digit;
+  updateCdDisplay();
+}
+
+function numpadDel() {
+  cdInput = cdInput.slice(0, -1);
+  updateCdDisplay();
+}
+
+function updateCdDisplay() {
+  const el = document.getElementById('cdDisplay');
+  if (cdInput === '') {
+    el.textContent = '—';
+    el.classList.add('empty');
+  } else {
+    el.textContent = cdInput;
+    el.classList.remove('empty');
+  }
+  document.getElementById('cdBust').style.display = 'none';
+}
+
+function submitScore() {
+  const val = parseInt(cdInput, 10);
+  if (isNaN(val) || val < 0 || val > 180) {
+    showBust('Enter a valid score (0–180)');
+    cdInput = '';
+    updateCdDisplay();
+    return;
+  }
+
+  const idx = currentPlayer;
+  const prev = cdState.scores[idx];
+  const next = prev - val;
+
+  if (next < 0 || next === 1) {
+    // Bust
+    cdState.history.push({ name: players[idx].name, scored: val, result: 'BUST', remaining: prev });
+    showBust('BUST! Score stays at ' + prev);
+  } else if (next === 0) {
+    // Win!
+    cdState.scores[idx] = 0;
+    cdState.history.push({ name: players[idx].name, scored: val, result: 'WIN', remaining: 0 });
+    renderCountdown();
+    showWinner(players[idx].name, `Finished from ${prev} with a score of ${val}`);
+    cdInput = '';
+    return;
+  } else {
+    cdState.scores[idx] = next;
+    cdState.history.push({ name: players[idx].name, scored: val, result: '', remaining: next });
+    currentPlayer = 1 - currentPlayer;
+  }
+
+  cdInput = '';
+  updateCdDisplay();
+  renderCountdown();
+}
+
+function showBust(msg) {
+  const el = document.getElementById('cdBust');
+  el.textContent = msg;
+  el.style.display = 'block';
+  el.style.animation = 'none';
+  void el.offsetWidth;
+  el.style.animation = 'shake .3s';
+  currentPlayer = 1 - currentPlayer;
+}
+
+function renderCountdown() {
+  const board = document.getElementById('cdScoreboard');
+  const threshold = (mode === '501') ? 60 : 40;
+  board.innerHTML = players.map((p, i) => `
+    <div class="player-card ${i === currentPlayer ? 'active' : ''}">
+      ${i === currentPlayer ? '<div class="turn-badge">Your Turn</div>' : ''}
+      <div class="player-name">${p.name}</div>
+      <div class="player-score ${cdState.scores[i] <= threshold ? 'low' : ''}">${cdState.scores[i]}</div>
+      <div class="player-legs">${cdState.scores[i] <= threshold ? '⚡ Checkout range!' : ''}</div>
+    </div>
+  `).join('');
+
+  document.getElementById('cdCurrentName').textContent = players[currentPlayer].name;
+
+  const hist = document.getElementById('cdHistory');
+  hist.innerHTML = [...cdState.history].reverse().slice(0, 10).map(h => `
+    <div class="history-row">
+      <span>${h.name}</span>
+      <span>${h.scored} pts</span>
+      <span>${h.result === 'BUST' ? '💥 BUST' : '→ ' + h.remaining}</span>
+    </div>
+  `).join('') || '<div style="color:var(--muted);font-size:.85rem">No throws yet</div>';
+}
+
+// ==================== CRICKET ====================
+function initCricket() {
+  cktState = {
+    marks: [
+      {20:0, 19:0, 18:0, 17:0, 16:0, 15:0, 'Bull':0},
+      {20:0, 19:0, 18:0, 17:0, 16:0, 15:0, 'Bull':0}
+    ],
+    scores: [0, 0]
+  };
+  cktSelectedMarks = null;
+  cktSelectedTarget = null;
+  renderCricket();
+  showScreen('screenCricket');
+}
+
+function marksSymbol(n) {
+  if (n === 0) return '';
+  if (n === 1) return '/';
+  if (n === 2) return 'X';
+  return '⊗';
+}
+
+function isClosed(playerIdx, target) {
+  return cktState.marks[playerIdx][target] >= 3;
+}
+
+function renderCricket() {
+  document.getElementById('cktCurrentName').textContent = players[currentPlayer].name;
+
+  // Board
+  const header = `
+    <div class="cricket-header">
+      <div class="cricket-score-header">${cktState.scores[0]}</div>
+      <div style="color:var(--muted);font-size:.8rem">PTS</div>
+      <div class="cricket-score-header">${cktState.scores[1]}</div>
+    </div>
+  `;
+  const rows = CKT_TARGETS.map(t => {
+    const m0 = cktState.marks[0][t];
+    const m1 = cktState.marks[1][t];
+    const closed0 = m0 >= 3;
+    const closed1 = m1 >= 3;
+    return `
+      <div class="cricket-row">
+        <div class="cricket-marks ${closed0 ? 'closed' : ''}">${marksSymbol(m0)}</div>
+        <div class="cricket-target ${t === 'Bull' ? 'bull' : ''}">${t}</div>
+        <div class="cricket-marks ${closed1 ? 'closed' : ''}">${marksSymbol(m1)}</div>
+      </div>
+    `;
+  }).join('');
+  document.getElementById('cricketBoard').innerHTML = header + rows;
+
+  // Target buttons
+  const targBtns = CKT_TARGETS.map(t => {
+    const closedMe = isClosed(currentPlayer, t);
+    const closedBoth = isClosed(0, t) && isClosed(1, t);
+    const cls = closedBoth ? 'target-btn closed-both' : closedMe ? 'target-btn closed-me' : 'target-btn';
+    const sel = t === cktSelectedTarget ? 'border:2px solid var(--accent2)' : '';
+    return `<button class="${cls}" style="${sel}" onclick="selectTarget('${t}')">${t}</button>`;
+  }).join('');
+  document.getElementById('cricketTargets').innerHTML = targBtns;
+
+  // Marks buttons
+  const marksBtns = document.querySelectorAll('.mark-btn');
+  marksBtns.forEach((btn, i) => {
+    const val = [1,2,3,0][i];
+    btn.classList.toggle('selected', val === cktSelectedMarks);
+  });
+
+  document.getElementById('cktSubmitBtn').disabled = !(cktSelectedMarks !== null && cktSelectedTarget !== null);
+}
+
+function selectMarks(n) {
+  cktSelectedMarks = n;
+  renderCricket();
+}
+
+function selectTarget(t) {
+  const bothClosed = isClosed(0, t) && isClosed(1, t);
+  if (bothClosed) return;
+  cktSelectedTarget = t;
+  renderCricket();
+}
+
+function submitCricketThrow() {
+  if (cktSelectedMarks === null || cktSelectedTarget === null) return;
+  if (cktSelectedMarks === 0) {
+    // Miss — just switch player
+    cktSelectedMarks = null;
+    cktSelectedTarget = null;
+    currentPlayer = 1 - currentPlayer;
+    renderCricket();
+    return;
+  }
+
+  const me = currentPlayer;
+  const opp = 1 - currentPlayer;
+  const t = cktSelectedTarget;
+  const prevMarks = cktState.marks[me][t];
+  const newMarks = Math.min(prevMarks + cktSelectedMarks, 99);
+  cktState.marks[me][t] = newMarks;
+
+  // Score points if we closed it and opponent hasn't
+  if (newMarks >= 3 && !isClosed(opp, t)) {
+    const extraMarks = (prevMarks >= 3) ? cktSelectedMarks : (prevMarks + cktSelectedMarks - 3);
+    const pts = t === 'Bull' ? 25 : parseInt(t);
+    cktState.scores[me] += extraMarks * pts;
+  }
+
+  // Check win
+  const allClosed = CKT_TARGETS.every(target => isClosed(me, target));
+  if (allClosed && cktState.scores[me] >= cktState.scores[opp]) {
+    renderCricket();
+    showWinner(players[me].name, `Closed all numbers with ${cktState.scores[me]} pts`);
+    return;
+  }
+
+  cktSelectedMarks = null;
+  cktSelectedTarget = null;
+  currentPlayer = 1 - currentPlayer;
+  renderCricket();
+}
+
+// ==================== AROUND THE CLOCK ====================
+function initATC() {
+  atcState = {
+    targets: [1, 1],   // current target for each player (1-20, then 21 = done)
+    history: []
+  };
+  renderATC();
+  showScreen('screenATC');
+}
+
+function atcHit() {
+  const me = currentPlayer;
+  atcState.targets[me]++;
+  atcState.history.push({ name: players[me].name, result: 'hit', num: atcState.targets[me] - 1 });
+
+  if (atcState.targets[me] > 20) {
+    renderATC();
+    showWinner(players[me].name, `Hit all numbers 1–20!`);
+    return;
+  }
+
+  currentPlayer = 1 - currentPlayer;
+  renderATC();
+}
+
+function atcMiss() {
+  const me = currentPlayer;
+  atcState.history.push({ name: players[me].name, result: 'miss', num: atcState.targets[me] });
+  currentPlayer = 1 - currentPlayer;
+  renderATC();
+}
+
+function renderATC() {
+  document.getElementById('atcCurrentName').textContent = players[currentPlayer].name;
+  const t = atcState.targets[currentPlayer];
+  document.getElementById('atcInstruction').textContent =
+    `Aim for number ${t}. Hit it to advance!`;
+
+  // Player cards
+  document.getElementById('atcPlayers').innerHTML = players.map((p, i) => `
+    <div class="atc-player ${i === currentPlayer ? 'active' : ''}">
+      <div class="player-name" style="font-size:.8rem;color:var(--muted)">${p.name}</div>
+      <div class="atc-target">${atcState.targets[i] > 20 ? '🏆' : atcState.targets[i]}</div>
+      <div class="atc-label">Target</div>
+      <div style="font-size:.75rem;color:var(--muted);margin-top:4px">${atcState.targets[i]-1}/20 done</div>
+    </div>
+  `).join('');
+
+  // Grid 1–20
+  const grid = document.getElementById('atcGrid');
+  const t0 = atcState.targets[0];
+  const t1 = atcState.targets[1];
+  let cells = '';
+  for (let n = 1; n <= 20; n++) {
+    const hitP0 = n < t0;
+    const hitP1 = n < t1;
+    const isT0 = n === t0;
+    const isT1 = n === t1;
+    let cls = 'atc-num';
+    if (hitP0 && hitP1) cls += ' hit';
+    else if (isT0 && isT1) cls += ' current-both';
+    else if (isT0) cls += ' current-p1';
+    else if (isT1) cls += ' current-p2';
+    cells += `<div class="${cls}">${n}</div>`;
+  }
+  grid.innerHTML = cells;
+}
+
+// ==================== WINNER ====================
+function showWinner(name, detail) {
+  document.getElementById('winnerName').textContent = name;
+  document.getElementById('winnerDetails').textContent = detail;
+  document.getElementById('topBar').style.display = 'none';
+  showScreen('screenWinner');
+}
+
+// ==================== INIT ====================
+document.getElementById('p1Name').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('p2Name').focus(); });
+document.getElementById('p2Name').addEventListener('keydown', e => { if (e.key === 'Enter') startGame(); });
+</script>
+</body>
+</html>
