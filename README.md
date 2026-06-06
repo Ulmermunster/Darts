@@ -35,9 +35,15 @@ Supports **1–4 players** with editable names.
 ## How scoring works
 
 1. Pick a game mode and set up your players, then tap **Start game**.
-2. Each turn, throw 3 darts. For each dart: choose **Single / Double / Treble**,
-   then tap the number you hit (or **Bull** / **Miss**).
-3. Tap **End turn** to commit and pass to the next player.
+2. Each turn, throw 3 darts. Enter each one **either way**:
+   - **Tap the visual dartboard** right where the dart landed (it figures out
+     single / double / treble / bull automatically), **or**
+   - choose **Single / Double / Treble** and tap the number on the buttons
+     (or **Bull** / **Miss**).
+3. **Validate before you commit:** each dart you enter drops a numbered marker
+   (1, 2, 3) on the dartboard so you can see exactly where the three throws
+   landed and fix any mistakes first.
+4. Tap **End turn** to commit and pass to the next player.
 
 Helpful guidance appears as you play:
 

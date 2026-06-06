@@ -109,6 +109,18 @@
   .num.bull{grid-column:span 2;background:#2a1a1a;border-color:#5a2b2b;}
   .num.miss{grid-column:span 2;}
 
+  /* Visual dartboard */
+  .board-wrap{display:flex;justify-content:center;margin:2px 0 8px;}
+  #board{width:100%;max-width:330px;height:auto;touch-action:manipulation;display:block;}
+  #board .seg{cursor:pointer;}
+  #board .seg:active{opacity:.8;}
+  #board text.bnum{fill:var(--text);font-size:19px;font-weight:700;text-anchor:middle;
+    dominant-baseline:central;pointer-events:none;font-family:inherit;}
+  #board .mk{pointer-events:none;}
+  #board .mk circle{fill:var(--gold);stroke:#1a1a1a;stroke-width:2;}
+  #board .mk text{fill:#1a1a1a;font-size:13px;font-weight:800;text-anchor:middle;dominant-baseline:central;}
+  .boardhint{text-align:center;color:var(--muted);font-size:.8rem;margin-bottom:10px;}
+
   .gamebtns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;}
 
   /* Cricket grid */
@@ -214,6 +226,11 @@
         <button class="iconbtn" id="undoDart" title="Undo last dart" style="margin-left:auto;">⌫</button>
       </div>
 
+      <div class="board-wrap" id="boardArea">
+        <svg id="board" viewBox="0 0 440 440" role="img" aria-label="Dartboard — tap where each dart landed"></svg>
+      </div>
+      <div class="boardhint" id="boardHint">Tap the board where each dart landed, or use the buttons below.</div>
+
       <div class="mults" id="mults">
         <button class="mult sel" data-mult="S">Single</button>
         <button class="mult" data-mult="D">Double</button>
@@ -256,6 +273,18 @@ let mult = "S";        // current multiplier selection
 
 const CRICKET_NUMS = [20,19,18,17,16,15,25]; // 25 = bull
 const numLabel = n => n === 25 ? "Bull" : String(n);
+
+/* ---------------- Dartboard geometry ---------------- */
+const SEG_ORDER=[20,1,18,4,13,6,10,15,2,17,3,19,7,16,8,11,14,9,12,5]; // clockwise from top
+const CX=220, CY=220;
+const R={bullEye:9, bull:20, tripleIn:116, tripleOut:126, doubleIn:190, doubleOut:200};
+const RING_RMID={innerSingle:68, outerSingle:158, triple:121, double:195};
+function pt(r,deg){ const a=deg*Math.PI/180; return {x:CX+r*Math.sin(a), y:CY-r*Math.cos(a)}; }
+function sector(r1,r2,a1,a2){
+  const p2=pt(r2,a1),p3=pt(r2,a2),p4=pt(r1,a2),p1=pt(r1,a1);
+  return `M${p2.x.toFixed(1)} ${p2.y.toFixed(1)} A${r2} ${r2} 0 0 1 ${p3.x.toFixed(1)} ${p3.y.toFixed(1)}`
+    +` L${p4.x.toFixed(1)} ${p4.y.toFixed(1)} A${r1} ${r1} 0 0 0 ${p1.x.toFixed(1)} ${p1.y.toFixed(1)} Z`;
+}
 
 /* ---------------- Rules text ---------------- */
 const RULES = {
@@ -421,16 +450,84 @@ function buildNumpad(){
   pad.appendChild(miss);
 }
 
+function dartFromRing(base, ring){
+  if(ring==="bullEye") return {base:25, mult:"D", value:50, isDouble:true, ring, label:"Bull"};
+  if(ring==="bull")    return {base:25, mult:"S", value:25, isDouble:false, ring, label:"25"};
+  if(ring==="triple")  return {base, mult:"T", value:base*3, isDouble:false, ring, label:"T"+base};
+  if(ring==="double")  return {base, mult:"D", value:base*2, isDouble:true,  ring, label:"D"+base};
+  return {base, mult:"S", value:base, isDouble:false, ring, label:String(base)}; // inner/outer single
+}
+
 function dartFromInput(base){
-  // base: 1-20, 25 (bull), or 0 (miss). Apply current multiplier.
-  if(base===0) return {base:0, mult:"S", value:0, isDouble:false, label:"Miss"};
-  if(base===25){
-    if(mult==="D") return {base:25, mult:"D", value:50, isDouble:true, label:"Bull"};
-    return {base:25, mult:"S", value:25, isDouble:false, label:"25"};
+  // base: 1-20, 25 (bull), or 0 (miss). Apply current multiplier (from the buttons).
+  if(base===0) return {base:0, mult:"S", value:0, isDouble:false, ring:null, label:"Miss"};
+  if(base===25) return dartFromRing(25, mult==="D" ? "bullEye" : "bull");
+  if(mult==="D") return dartFromRing(base, "double");
+  if(mult==="T") return dartFromRing(base, "triple");
+  return dartFromRing(base, "outerSingle");
+}
+
+/* ---------------- Visual dartboard ---------------- */
+function buildBoard(){
+  const svg=$("board");
+  const cols=k=>({ single:k%2===0?"#19140f":"#efe2bd", ring:k%2===0?"#c0392b":"#2e8b57" });
+  let s='';
+  for(let k=0;k<20;k++){
+    const base=SEG_ORDER[k], a1=k*18-9, a2=k*18+9, c=cols(k);
+    s+=`<path class="seg" data-base="${base}" data-ring="innerSingle" fill="${c.single}" d="${sector(R.bull,R.tripleIn,a1,a2)}"/>`;
+    s+=`<path class="seg" data-base="${base}" data-ring="triple" fill="${c.ring}" d="${sector(R.tripleIn,R.tripleOut,a1,a2)}"/>`;
+    s+=`<path class="seg" data-base="${base}" data-ring="outerSingle" fill="${c.single}" d="${sector(R.tripleOut,R.doubleIn,a1,a2)}"/>`;
+    s+=`<path class="seg" data-base="${base}" data-ring="double" fill="${c.ring}" d="${sector(R.doubleIn,R.doubleOut,a1,a2)}"/>`;
   }
-  if(mult==="D") return {base, mult:"D", value:base*2, isDouble:true, label:"D"+base};
-  if(mult==="T") return {base, mult:"T", value:base*3, isDouble:false, label:"T"+base};
-  return {base, mult:"S", value:base, isDouble:false, label:String(base)};
+  s+=`<circle class="seg" data-base="25" data-ring="bull" cx="${CX}" cy="${CY}" r="${R.bull}" fill="#2e8b57"/>`;
+  s+=`<circle class="seg" data-base="25" data-ring="bullEye" cx="${CX}" cy="${CY}" r="${R.bullEye}" fill="#c0392b"/>`;
+  s+=`<circle cx="${CX}" cy="${CY}" r="${R.doubleOut}" fill="none" stroke="#000" stroke-width="2"/>`;
+  for(let k=0;k<20;k++){ const p=pt(R.doubleOut+15, k*18); s+=`<text class="bnum" x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)}">${SEG_ORDER[k]}</text>`; }
+  s+=`<g id="markers"></g>`;
+  svg.innerHTML=s;
+  svg.addEventListener("click", onBoardClick);
+}
+
+function onBoardClick(e){
+  if(!G || G.winner!=null || turn.length>=3) return;
+  const svg=$("board"), rect=svg.getBoundingClientRect();
+  if(!rect.width) return;
+  const f=440/rect.width;
+  const x=(e.clientX-rect.left)*f, y=(e.clientY-rect.top)*f;
+  const dx=x-CX, dy=y-CY, r=Math.hypot(dx,dy);
+  if(r>R.doubleOut+13) return; // tapped outside the board — ignore
+  let base, ring;
+  if(r<=R.bullEye){ base=25; ring="bullEye"; }
+  else if(r<=R.bull){ base=25; ring="bull"; }
+  else{
+    let deg=Math.atan2(dx,-dy)*180/Math.PI; if(deg<0) deg+=360;
+    base=SEG_ORDER[Math.round(deg/18)%20];
+    if(r<=R.tripleIn) ring="innerSingle";
+    else if(r<=R.tripleOut) ring="triple";
+    else if(r<=R.doubleIn) ring="outerSingle";
+    else ring="double";
+  }
+  turn.push(dartFromRing(base, ring));
+  render();
+}
+
+function markerPos(d){
+  if(!d.ring) return null;
+  if(d.ring==="bullEye") return {x:CX, y:CY};
+  if(d.ring==="bull") return pt((R.bullEye+R.bull)/2, 0);
+  const k=SEG_ORDER.indexOf(d.base);
+  return pt(RING_RMID[d.ring], k*18);
+}
+
+function renderMarkers(){
+  const g=document.getElementById("markers"); if(!g) return;
+  let s='';
+  turn.forEach((d,i)=>{
+    const p=markerPos(d); if(!p) return;
+    s+=`<g class="mk"><circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="11"/>`
+      +`<text x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)}">${i+1}</text></g>`;
+  });
+  g.innerHTML=s;
 }
 
 function addDart(base){
@@ -534,6 +631,7 @@ function render(){
   renderScoreboard();
   renderGuide();
   renderTurn();
+  renderMarkers();
   renderMults();
   // disable entry when game won
   const over = G.winner!=null;
@@ -543,6 +641,8 @@ function render(){
   // hide entry controls when over
   $("mults").style.display = over ? "none" : "";
   $("numpad").style.display = over ? "none" : "";
+  $("boardArea").style.display = over ? "none" : "";
+  $("boardHint").style.display = over ? "none" : "";
   document.querySelector(".turnbar").style.display = over ? "none" : "";
   $("endTurn").parentElement.style.display = over ? "none" : "";
 }
@@ -664,6 +764,7 @@ $("rematch").addEventListener("click", ()=>{
    ================================================================= */
 function init(){
   buildNumpad();
+  buildBoard();
   renderSetupMode();
   renderPlayers();
   const saved=load();
