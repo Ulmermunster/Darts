@@ -29,8 +29,9 @@ lose your progress.
 | **X01 · Custom** | Same idea but choose the start score (301 / 501 / 701) and whether you need a double to finish. |
 | **Cricket** | Close 15–20 and the bull (3 marks each), then score on your closed numbers while opponents are still open. |
 | **Around the Clock** | Race from 1 → 20 → bull. Hit your current target to advance. |
+| **Tic-Tac-Toe** | A 3×3 grid of numbers. Hit a square's number 3× to claim it; first to three in a row wins. Best with 2 players. |
 
-Supports **1–4 players** with editable names.
+Supports **1–4 players** with editable names (Tic-Tac-Toe is best with 2).
 
 ## How scoring works
 

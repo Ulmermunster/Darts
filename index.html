@@ -133,6 +133,15 @@
   table.cricket td.closed-all{opacity:.45;}
   .csig{font-size:.78rem;color:var(--muted);}
 
+  /* Tic-Tac-Toe grid */
+  .ttt{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:12px;}
+  .ttt-cell{position:relative;aspect-ratio:1/1;background:var(--panel2);border:1px solid var(--line);
+    border-radius:12px;display:flex;align-items:center;justify-content:center;}
+  .ttt-cell.owned{background:#11271a;border-color:var(--green-d);}
+  .ttt-num{position:absolute;top:6px;left:9px;font-size:.85rem;font-weight:800;color:var(--muted);}
+  .ttt-sym{font-size:2.6rem;font-weight:800;line-height:1;}
+  .ttt-prog{font-size:1.05rem;letter-spacing:3px;color:var(--green);}
+
   .banner{background:linear-gradient(135deg,#3a2f08,#2a2410);border:2px solid var(--gold);
     border-radius:14px;padding:16px;text-align:center;margin-bottom:14px;}
   .banner .bt{font-size:1.4rem;font-weight:800;color:var(--gold);}
@@ -166,6 +175,10 @@
         <button class="mode" data-mode="clock">
           <span class="mt">Around the Clock</span>
           <span class="md">Hit 1 → 20 → bull</span>
+        </button>
+        <button class="mode" data-mode="ttt">
+          <span class="mt">Tic-Tac-Toe</span>
+          <span class="md">Claim 3 squares in a row</span>
         </button>
       </div>
 
@@ -274,6 +287,12 @@ let mult = "S";        // current multiplier selection
 const CRICKET_NUMS = [20,19,18,17,16,15,25]; // 25 = bull
 const numLabel = n => n === 25 ? "Bull" : String(n);
 
+// Tic-Tac-Toe
+const TTT_NUMS = [20,19,18,17,16,15,14,13,12]; // numbers on the 3x3 grid
+const TTT_LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+const SYMBOLS = ["✕","◯","△","▢"];
+const SYMCOLORS = ["#d9463b","#2fa36b","#e8c252","#5aa9e6"];
+
 /* ---------------- Dartboard geometry ---------------- */
 const SEG_ORDER=[20,1,18,4,13,6,10,15,2,17,3,19,7,16,8,11,14,9,12,5]; // clockwise from top
 const CX=220, CY=220;
@@ -317,6 +336,14 @@ const RULES = {
       <li>On your turn, hit your current target number (any part of it counts) to advance to the next.</li>
       <li>You can advance several numbers in one turn if you keep hitting your target.</li>
       <li><b>Win:</b> first player to hit the bull at the end.</li>
+    </ul>`,
+  "ttt": `
+    <ul>
+      <li>A <b>3×3 grid</b>, each square is a number. Best played with <b>2 players</b>.</li>
+      <li>Claim a square by hitting its number <b>3 times</b> (single = 1, double = 2, treble = 3) — a single treble grabs it instantly.</li>
+      <li>It's a race: whoever reaches 3 marks on a square first <b>owns</b> it, and it locks.</li>
+      <li><b>Win:</b> be the first to claim <b>three squares in a row</b> — across, down, or diagonally.</li>
+      <li>Tap the dartboard (or the buttons) as usual; only numbers shown on the grid count.</li>
     </ul>`
 };
 
@@ -407,6 +434,7 @@ function startGame(){
   if(setupMode==="x01-501"){ mode="x01"; cfg={start:501, doubleOut:true}; }
   else if(setupMode==="x01-custom"){ mode="x01"; cfg={start:parseInt($("startScore").value,10), doubleOut:$("outRule").value==="double"}; }
   else if(setupMode==="cricket"){ mode="cricket"; }
+  else if(setupMode==="ttt"){ mode="ttt"; }
   else { mode="clock"; }
 
   G = newGameState(mode, cfg, names);
@@ -416,14 +444,20 @@ function startGame(){
 }
 
 function newGameState(mode, cfg, names){
-  const players = names.map(name=>{
+  const players = names.map((name,idx)=>{
     const p={ name };
     if(mode==="x01"){ p.score=cfg.start; }
     else if(mode==="cricket"){ p.score=0; p.marks={}; CRICKET_NUMS.forEach(n=>p.marks[n]=0); }
     else if(mode==="clock"){ p.target=1; p.done=false; } // 1..20 then 25(bull)
+    else if(mode==="ttt"){ p.symbol=SYMBOLS[idx%4]; p.color=SYMCOLORS[idx%4]; }
     return p;
   });
-  return { mode, cfg, players, current:0, winner:null, history:[] };
+  const st = { mode, cfg, players, current:0, winner:null, history:[] };
+  if(mode==="ttt"){
+    st.board = TTT_NUMS.map(n=>({ num:n, owner:null, marks:names.map(()=>0) }));
+    st.draw = false;
+  }
+  return st;
 }
 
 /* =================================================================
@@ -489,7 +523,7 @@ function buildBoard(){
 }
 
 function onBoardClick(e){
-  if(!G || G.winner!=null || turn.length>=3) return;
+  if(isOver() || turn.length>=3) return;
   const svg=$("board"), rect=svg.getBoundingClientRect();
   if(!rect.width) return;
   const f=440/rect.width;
@@ -531,7 +565,7 @@ function renderMarkers(){
 }
 
 function addDart(base){
-  if(G.winner!=null) return;
+  if(isOver()) return;
   if(turn.length>=3) return;
   turn.push(dartFromInput(base));
   mult="S"; // reset multiplier after each dart
@@ -548,20 +582,22 @@ $("undoDart").addEventListener("click",()=>{ if(turn.length){ turn.pop(); render
 /* =================================================================
    END TURN — per-mode commit logic
    ================================================================= */
-function snapshot(){ return JSON.stringify({players:G.players, current:G.current, winner:G.winner}); }
-function restore(snap){ const s=JSON.parse(snap); G.players=s.players; G.current=s.current; G.winner=s.winner; }
+function isOver(){ return !!G && (G.winner!=null || G.draw===true); }
+function snapshot(){ return JSON.stringify({players:G.players, current:G.current, winner:G.winner, board:G.board, draw:G.draw}); }
+function restore(snap){ const s=JSON.parse(snap); G.players=s.players; G.current=s.current; G.winner=s.winner; G.board=s.board; G.draw=s.draw; }
 
 function endTurn(){
-  if(G.winner!=null) return;
+  if(isOver()) return;
   G.history.push(snapshot());           // for undo
   const p = G.players[G.current];
 
   if(G.mode==="x01") commitX01(p);
   else if(G.mode==="cricket") commitCricket(p);
   else if(G.mode==="clock") commitClock(p);
+  else if(G.mode==="ttt") commitTTT(p);
 
   turn=[]; mult="S";
-  if(G.winner==null) G.current = (G.current+1) % G.players.length;
+  if(!isOver()) G.current = (G.current+1) % G.players.length;
   save();
   render();
 }
@@ -619,6 +655,27 @@ function commitClock(p){
   if(p.done) G.winner=G.current;
 }
 
+function commitTTT(p){
+  const pi=G.current;
+  for(const d of turn){
+    if(d.base===0) continue;
+    const cell=G.board.find(c=>c.num===d.base && c.owner===null);
+    if(!cell) continue;
+    cell.marks[pi] += d.mult==="T" ? 3 : d.mult==="D" ? 2 : 1;
+    if(cell.marks[pi]>=3) cell.owner=pi;
+  }
+  const w=tttWinner();
+  if(w!=null) G.winner=w;
+  else if(G.board.every(c=>c.owner!=null)) G.draw=true;
+}
+function tttWinner(){
+  for(const ln of TTT_LINES){
+    const a=G.board[ln[0]].owner;
+    if(a!=null && a===G.board[ln[1]].owner && a===G.board[ln[2]].owner) return a;
+  }
+  return null;
+}
+
 $("endTurn").addEventListener("click", endTurn);
 $("undoTurn").addEventListener("click", ()=>{
   if(G.history.length){ restore(G.history.pop()); turn=[]; mult="S"; save(); render(); }
@@ -634,10 +691,9 @@ function render(){
   renderMarkers();
   renderMults();
   // disable entry when game won
-  const over = G.winner!=null;
-  $("entryCard").classList.toggle("hidden", over && G.mode!=="x01" ? false : false);
+  const over = isOver();
   $("winBanner").classList.toggle("hidden", !over);
-  if(over){ $("winText").textContent = "🏆 " + G.players[G.winner].name + " wins!"; }
+  if(over){ $("winText").textContent = G.draw ? "🤝 It's a draw!" : "🏆 " + G.players[G.winner].name + " wins!"; }
   // hide entry controls when over
   $("mults").style.display = over ? "none" : "";
   $("numpad").style.display = over ? "none" : "";
@@ -650,6 +706,7 @@ function render(){
 function renderScoreboard(){
   const sb=$("scoreboard"); sb.innerHTML="";
   if(G.mode==="cricket"){ sb.appendChild(buildCricketTable()); return; }
+  if(G.mode==="ttt"){ renderTTT(sb); return; }
   G.players.forEach((p,i)=>{
     const card=el("div","pcard");
     if(i===G.current && G.winner==null) card.classList.add("active");
@@ -706,9 +763,38 @@ function buildCricketTable(){
 }
 function markStr(m){ if(m<=0) return "·"; if(m===1) return "/"; if(m===2) return "✕"; return "⊗"; }
 
+function renderTTT(sb){
+  // player chips
+  G.players.forEach((p,i)=>{
+    const card=el("div","pcard");
+    if(i===G.current && !isOver()) card.classList.add("active");
+    if(G.winner===i) card.classList.add("winner");
+    const owned=G.board.filter(c=>c.owner===i).length;
+    card.innerHTML = `<div class="pname"><span style="color:${p.color};font-size:1.3rem">${p.symbol}</span> ${escapeHtml(p.name)}</div>`
+      + `<div class="pscore" style="font-size:1.3rem">${owned}<span style="color:var(--muted);font-size:.9rem">/3 in a row</span></div>`;
+    sb.appendChild(card);
+  });
+  // 3x3 grid
+  const grid=el("div","ttt");
+  G.board.forEach(c=>{
+    const cell=el("div","ttt-cell");
+    let inner=`<div class="ttt-num">${numLabel(c.num)}</div>`;
+    if(c.owner!=null){
+      cell.classList.add("owned");
+      inner+=`<div class="ttt-sym" style="color:${G.players[c.owner].color}">${G.players[c.owner].symbol}</div>`;
+    }else{
+      const m=Math.min(3, c.marks[G.current]||0);
+      inner+=`<div class="ttt-prog">${"●".repeat(m)}${"○".repeat(3-m)}</div>`;
+    }
+    cell.innerHTML=inner;
+    grid.appendChild(cell);
+  });
+  sb.appendChild(grid);
+}
+
 function renderGuide(){
   const g=$("guide"); g.classList.remove("bust");
-  if(G.winner!=null){ g.innerHTML="Game over — tap <b>Rematch</b> to play again."; return; }
+  if(isOver()){ g.innerHTML="Game over — tap <b>Rematch</b> to play again."; return; }
   const p=G.players[G.current];
 
   if(G.mode==="x01"){
@@ -737,6 +823,10 @@ function renderGuide(){
   }
   if(G.mode==="clock"){
     g.innerHTML = "<b>"+escapeHtml(p.name)+"</b>, hit <b>"+numLabel(p.target)+"</b> to advance.";
+    return;
+  }
+  if(G.mode==="ttt"){
+    g.innerHTML = `<b style="color:${p.color}">${p.symbol}</b> <b>${escapeHtml(p.name)}</b> — hit a square's number <b>3×</b> to claim it. Get <b>3 in a row</b> to win.`;
     return;
   }
 }
