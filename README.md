@@ -56,3 +56,41 @@ Helpful guidance appears as you play:
 Use **Undo dart** (⌫) to fix a mis-tap, or **Undo turn** to revert the last
 committed turn. **Rematch** restarts with the same players; **New game** returns
 to setup.
+
+## 📷 Camera auto-score (experimental)
+
+You can let your phone's camera watch the board and place darts for you.
+
+> **Heads up — this is genuinely experimental.** Reliable automatic dart
+> detection normally needs multiple cameras and trained ML models. With one
+> phone camera the app does its best with frame-differencing + perspective
+> math, but it *will* misread throws depending on lighting and angle. Treat
+> every detection as a suggestion and correct it — that's why Undo and tapping
+> still work.
+
+### Requirement: a secure (https) page
+Phone browsers only allow camera access on a **secure page**, so opening the
+downloaded file directly (`file://…`) will **not** work. Serve it over https:
+
+- **Easiest — GitHub Pages:** in the repo, go to **Settings → Pages**, choose
+  this branch as the source, and open the `https://…github.io/…` URL it gives
+  you on your phone.
+- Or host `index.html` on any https static host.
+
+(`http://localhost` also counts as secure if you're testing on a computer.)
+
+### Using it
+1. **Prop your phone** on a stand/ledge so it faces the board and stays put.
+2. Start a game and tap **📷 Camera auto-score (beta)** — allow camera access.
+3. **① Calibrate:** tap the four outer edges of the scoring area in the video,
+   in order — **top** (above 20), **right** (outside 6), **bottom** (below 3),
+   **left** (outside 11). This teaches the app the board's perspective.
+4. Clear the board, then tap **② Set empty board** to capture a reference shot.
+5. Throw. When a dart settles, the app drops a numbered marker where it thinks
+   it landed and adds it to your turn.
+6. **Wrong?** Tap the dart's real spot on the live video (that uses the precise
+   calibration and is the most reliable way), or use **Undo dart** / the board
+   below. Then tap **End turn**.
+
+If a throw is missed or misread, just tap it on the video — calibrated taps are
+accurate; the fully-automatic detection is the best-effort part.

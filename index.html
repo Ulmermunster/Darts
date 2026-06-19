@@ -121,6 +121,14 @@
   #board .mk text{fill:#1a1a1a;font-size:13px;font-weight:800;text-anchor:middle;dominant-baseline:central;}
   .boardhint{text-align:center;color:var(--muted);font-size:.8rem;margin-bottom:10px;}
 
+  /* Camera auto-score */
+  .camtoggle{margin:0 0 10px;}
+  .camstage{position:relative;width:100%;max-width:380px;margin:0 auto;border-radius:12px;overflow:hidden;background:#000;line-height:0;}
+  #camVideo{width:100%;display:block;}
+  #camOverlay{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;}
+  .camstatus{text-align:center;color:var(--gold);font-size:.85rem;margin:8px 0;min-height:18px;}
+  .camctrls{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;}
+
   .gamebtns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;}
 
   /* Cricket grid */
@@ -243,6 +251,23 @@
         <svg id="board" viewBox="0 0 440 440" role="img" aria-label="Dartboard — tap where each dart landed"></svg>
       </div>
       <div class="boardhint" id="boardHint">Tap the board where each dart landed, or use the buttons below.</div>
+
+      <div class="camtoggle">
+        <button class="btn ghost small" id="camBtn">📷 Camera auto-score (beta)</button>
+      </div>
+      <div id="camPanel" class="hidden">
+        <div class="camstage">
+          <video id="camVideo" playsinline muted autoplay></video>
+          <canvas id="camOverlay"></canvas>
+        </div>
+        <div class="camstatus" id="camStatus">Starting camera…</div>
+        <div class="camctrls">
+          <button class="btn ghost small" id="camCalib">① Calibrate</button>
+          <button class="btn ghost small" id="camRef">② Set empty board</button>
+          <button class="btn ghost small" id="camOff">Stop</button>
+        </div>
+        <div class="boardhint">Experimental — detections aren't perfect. Check each dart; tap the video to add one, or use Undo / the board to fix.</div>
+      </div>
 
       <div class="mults" id="mults">
         <button class="mult sel" data-mult="S">Single</button>
@@ -464,7 +489,7 @@ function newGameState(mode, cfg, names){
    SCREEN SWITCHING
    ================================================================= */
 function showGame(){ $("setup").classList.add("hidden"); $("game").classList.remove("hidden"); render(); }
-function showSetup(){ $("game").classList.add("hidden"); $("setup").classList.remove("hidden"); }
+function showSetup(){ if(typeof CAM!=="undefined" && CAM.on) camStop(); $("game").classList.add("hidden"); $("setup").classList.remove("hidden"); }
 
 /* =================================================================
    DART ENTRY
@@ -522,14 +547,10 @@ function buildBoard(){
   svg.addEventListener("click", onBoardClick);
 }
 
-function onBoardClick(e){
-  if(isOver() || turn.length>=3) return;
-  const svg=$("board"), rect=svg.getBoundingClientRect();
-  if(!rect.width) return;
-  const f=440/rect.width;
-  const x=(e.clientX-rect.left)*f, y=(e.clientY-rect.top)*f;
-  const dx=x-CX, dy=y-CY, r=Math.hypot(dx,dy);
-  if(r>R.doubleOut+13) return; // tapped outside the board — ignore
+function dartFromBoardXY(bx, by){
+  // Map a point in board space (0..440 viewBox) to a dart, or null if off-board.
+  const dx=bx-CX, dy=by-CY, r=Math.hypot(dx,dy);
+  if(r>R.doubleOut+13) return null;
   let base, ring;
   if(r<=R.bullEye){ base=25; ring="bullEye"; }
   else if(r<=R.bull){ base=25; ring="bull"; }
@@ -541,8 +562,16 @@ function onBoardClick(e){
     else if(r<=R.doubleIn) ring="outerSingle";
     else ring="double";
   }
-  turn.push(dartFromRing(base, ring));
-  render();
+  return dartFromRing(base, ring);
+}
+
+function onBoardClick(e){
+  if(isOver() || turn.length>=3) return;
+  const svg=$("board"), rect=svg.getBoundingClientRect();
+  if(!rect.width) return;
+  const f=440/rect.width;
+  const d=dartFromBoardXY((e.clientX-rect.left)*f, (e.clientY-rect.top)*f);
+  if(d){ turn.push(d); render(); }
 }
 
 function markerPos(d){
@@ -701,6 +730,7 @@ function render(){
   $("boardHint").style.display = over ? "none" : "";
   document.querySelector(".turnbar").style.display = over ? "none" : "";
   $("endTurn").parentElement.style.display = over ? "none" : "";
+  if(CAM.on) camDrawOverlay();
 }
 
 function renderScoreboard(){
@@ -848,6 +878,174 @@ $("rematch").addEventListener("click", ()=>{
   const names=G.players.map(p=>p.name);
   G=newGameState(G.mode, G.cfg, names); turn=[]; mult="S"; save(); render();
 });
+
+/* =================================================================
+   CAMERA AUTO-SCORE (experimental)
+   Phone propped facing the board. Calibrate the 4 board edges to learn the
+   perspective (homography), snapshot the empty board, then frame-differencing
+   spots a new dart and maps its tip to a score. Detections are best-effort —
+   the user confirms via End turn or fixes with Undo / tapping.
+   ================================================================= */
+const CAM = { on:false, stream:null, raf:0, H:null, Hinv:null, calib:[],
+  ref:null, prev:null, gray:null, PW:160, PH:120, cw:0, ch:0,
+  state:"idle", moving:false, settle:0, cooldown:0, pc:null, pctx:null };
+// Calibration targets: outer edge of the scoring area at top/right/bottom/left.
+const CALIB_TARGETS = [
+  {x:CX, y:CY-R.doubleOut, name:"TOP edge (above 20)"},
+  {x:CX+R.doubleOut, y:CY, name:"RIGHT edge (outside 6)"},
+  {x:CX, y:CY+R.doubleOut, name:"BOTTOM edge (below 3)"},
+  {x:CX-R.doubleOut, y:CY, name:"LEFT edge (outside 11)"} ];
+
+function camStatus(t){ const s=$("camStatus"); if(s) s.textContent=t; }
+
+/* ---- linear algebra ---- */
+function solveLin(A, b){ // Gaussian elimination, A is n×n (array of rows), b length n
+  const n=b.length;
+  for(let i=0;i<n;i++){
+    let p=i; for(let r=i+1;r<n;r++) if(Math.abs(A[r][i])>Math.abs(A[p][i])) p=r;
+    [A[i],A[p]]=[A[p],A[i]]; [b[i],b[p]]=[b[p],b[i]];
+    const piv=A[i][i]||1e-9;
+    for(let r=0;r<n;r++){ if(r===i) continue; const f=A[r][i]/piv;
+      for(let c=i;c<n;c++) A[r][c]-=f*A[i][c]; b[r]-=f*b[i]; }
+  }
+  return b.map((v,i)=> v/(A[i][i]||1e-9));
+}
+function computeHomography(src, dst){ // 4 pts each [x,y]; returns 9-array (M8=1)
+  const A=[], b=[];
+  for(let i=0;i<4;i++){ const [x,y]=src[i], [X,Y]=dst[i];
+    A.push([x,y,1,0,0,0,-x*X,-y*X]); b.push(X);
+    A.push([0,0,0,x,y,1,-x*Y,-y*Y]); b.push(Y); }
+  const h=solveLin(A,b); return [h[0],h[1],h[2],h[3],h[4],h[5],h[6],h[7],1];
+}
+function applyHom(M, x, y){ const w=M[6]*x+M[7]*y+M[8];
+  return { X:(M[0]*x+M[1]*y+M[2])/w, Y:(M[3]*x+M[4]*y+M[5])/w }; }
+function invert3x3(m){ const a=m[0],b=m[1],c=m[2],d=m[3],e=m[4],f=m[5],g=m[6],h=m[7],i=m[8];
+  const A=e*i-f*h, B=-(d*i-f*g), C=d*h-e*g, D=-(b*i-c*h), E=a*i-c*g, F=-(a*h-b*g),
+    Gg=b*f-c*e, H=-(a*f-c*d), I=a*e-b*d, det=a*A+b*B+c*C||1e-9;
+  return [A/det,D/det,Gg/det,B/det,E/det,H/det,C/det,F/det,I/det]; }
+
+/* ---- camera lifecycle ---- */
+async function camStart(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    $("camPanel").classList.remove("hidden");
+    camStatus("⚠️ Camera needs a secure (https) page. Host the app (e.g. GitHub Pages) — see README. The board & buttons still work.");
+    return;
+  }
+  try{
+    CAM.stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:"environment"} }, audio:false });
+  }catch(err){ $("camPanel").classList.remove("hidden"); camStatus("⚠️ Couldn't open camera: "+err.message); return; }
+  const v=$("camVideo"); v.srcObject=CAM.stream; try{ await v.play(); }catch(e){}
+  CAM.on=true; $("camPanel").classList.remove("hidden"); $("camBtn").textContent="📷 Camera on";
+  CAM.PH = Math.max(60, Math.round(CAM.PW * ((v.videoHeight/v.videoWidth)||0.75)));
+  CAM.pc=document.createElement("canvas"); CAM.pc.width=CAM.PW; CAM.pc.height=CAM.PH;
+  CAM.pctx=CAM.pc.getContext("2d",{willReadFrequently:true});
+  CAM.gray=new Float32Array(CAM.PW*CAM.PH); CAM.ref=null; CAM.prev=null;
+  camResize();
+  camStatus("Tap ① Calibrate, then tap the 4 board edges.");
+  CAM.raf=requestAnimationFrame(camLoop);
+}
+function camStop(){
+  CAM.on=false; if(CAM.raf) cancelAnimationFrame(CAM.raf); CAM.raf=0;
+  if(CAM.stream){ CAM.stream.getTracks().forEach(t=>t.stop()); CAM.stream=null; }
+  const v=$("camVideo"); if(v) v.srcObject=null;
+  $("camPanel").classList.add("hidden"); $("camBtn").textContent="📷 Camera auto-score (beta)";
+}
+function camResize(){ const v=$("camVideo"), c=$("camOverlay");
+  if(!v||!c||!v.clientWidth) return;
+  c.width=v.clientWidth; c.height=v.clientHeight; CAM.cw=c.width; CAM.ch=c.height; camDrawOverlay(); }
+
+/* ---- calibration / manual tap on the live video ---- */
+function camTap(e){
+  const c=$("camOverlay"), rect=c.getBoundingClientRect();
+  const vx=(e.clientX-rect.left)*(c.width/rect.width), vy=(e.clientY-rect.top)*(c.height/rect.height);
+  if(CAM.state==="calibrate"){
+    CAM.calib.push([vx,vy]);
+    if(CAM.calib.length>=4){
+      CAM.H=computeHomography(CAM.calib, CALIB_TARGETS.map(t=>[t.x,t.y]));
+      CAM.Hinv=invert3x3(CAM.H); CAM.state="idle"; CAM.ref=null; CAM.prev=null;
+      camStatus("Calibrated ✓ — clear the board, then tap ② Set empty board.");
+    }else camStatus("Calibrate: tap the "+CALIB_TARGETS[CAM.calib.length].name+".");
+    camDrawOverlay(); return;
+  }
+  // calibrated → treat a tap on the video as a manual dart
+  if(CAM.H && !isOver() && turn.length<3){
+    const b=applyHom(CAM.H, vx, vy); const d=dartFromBoardXY(b.X, b.Y);
+    if(d){ turn.push(d); render(); }
+  }
+}
+
+/* ---- detection loop ---- */
+function camLoop(){
+  if(CAM.on){
+    const v=$("camVideo");
+    if(v.readyState>=2 && CAM.pctx){
+      CAM.pctx.drawImage(v,0,0,CAM.PW,CAM.PH);
+      const img=CAM.pctx.getImageData(0,0,CAM.PW,CAM.PH).data, gray=CAM.gray;
+      for(let i=0,j=0;i<img.length;i+=4,j++) gray[j]=img[i]*0.3+img[i+1]*0.59+img[i+2]*0.11;
+      if(CAM.H && CAM.ref){
+        let motion=0; if(CAM.prev){ for(let j=0;j<gray.length;j++) if(Math.abs(gray[j]-CAM.prev[j])>18) motion++; }
+        const mf=motion/gray.length;
+        if(CAM.cooldown>0) CAM.cooldown--;
+        else if(mf>0.02){ CAM.moving=true; CAM.settle=0; }
+        else if(CAM.moving){ if(++CAM.settle>=3){ tryRegisterDart(gray); CAM.moving=false; CAM.settle=0; CAM.cooldown=8; } }
+      }
+      if(!CAM.prev) CAM.prev=new Float32Array(gray.length);
+      CAM.prev.set(gray);
+    }
+    CAM.raf=requestAnimationFrame(camLoop);
+  }
+}
+function tryRegisterDart(gray){
+  if(turn.length>=3 || isOver()){ CAM.ref.set(gray); return; }
+  const pts=[]; let cx=0, cy=0;
+  for(let y=0;y<CAM.PH;y++) for(let x=0;x<CAM.PW;x++){ const j=y*CAM.PW+x;
+    if(Math.abs(gray[j]-CAM.ref[j])>22){ pts.push(x,y); cx+=x; cy+=y; } }
+  const n=pts.length/2, total=CAM.PW*CAM.PH;
+  CAM.ref.set(gray); // rebase so the next dart diffs against the board-with-this-dart
+  if(n < total*0.002 || n > total*0.15) return; // too small (noise) or too big (a hand)
+  cx/=n; cy/=n;
+  // principal axis (PCA) of the new blob → its two endpoints
+  let sxx=0,syy=0,sxy=0;
+  for(let k=0;k<pts.length;k+=2){ const dx=pts[k]-cx, dy=pts[k+1]-cy; sxx+=dx*dx; syy+=dy*dy; sxy+=dx*dy; }
+  const ang=0.5*Math.atan2(2*sxy, sxx-syy), ux=Math.cos(ang), uy=Math.sin(ang);
+  let lo=1e9,hi=-1e9,plo=null,phi=null;
+  for(let k=0;k<pts.length;k+=2){ const t=(pts[k]-cx)*ux+(pts[k+1]-cy)*uy;
+    if(t<lo){lo=t;plo=[pts[k],pts[k+1]];} if(t>hi){hi=t;phi=[pts[k],pts[k+1]];} }
+  const toBoard=p=>applyHom(CAM.H, p[0]*(CAM.cw/CAM.PW), p[1]*(CAM.ch/CAM.PH));
+  const ba=toBoard(plo), bb=toBoard(phi);
+  // the tip (point) sits nearer the board centre than the flight, for most throws
+  const tip = Math.hypot(ba.X-CX,ba.Y-CY) <= Math.hypot(bb.X-CX,bb.Y-CY) ? ba : bb;
+  const dart=dartFromBoardXY(tip.X, tip.Y);
+  if(dart){ turn.push(dart); render(); camStatus("Detected "+dart.label+" — fix with Undo / tap if wrong."); }
+}
+
+/* ---- overlay drawing (calibration dots + detected dart markers) ---- */
+function camDrawOverlay(){
+  const c=$("camOverlay"); if(!c || !CAM.on) return;
+  const g=c.getContext("2d"); g.clearRect(0,0,c.width,c.height);
+  g.textAlign="center"; g.font="bold 13px sans-serif";
+  if(CAM.state==="calibrate"){
+    CAM.calib.forEach((p,i)=>{ g.fillStyle="#e8c252"; g.beginPath(); g.arc(p[0],p[1],7,0,7); g.fill();
+      g.fillStyle="#000"; g.fillText(i+1, p[0], p[1]+4); });
+  }
+  if(CAM.Hinv){
+    turn.forEach((d,i)=>{ const bp=markerPos(d); if(!bp) return; const v=applyHom(CAM.Hinv, bp.X, bp.Y);
+      g.fillStyle="#e8c252"; g.strokeStyle="#1a1a1a"; g.lineWidth=2;
+      g.beginPath(); g.arc(v.X,v.Y,12,0,7); g.fill(); g.stroke();
+      g.fillStyle="#1a1a1a"; g.fillText(i+1, v.X, v.Y+4); });
+  }
+}
+
+$("camBtn").addEventListener("click", ()=>{ CAM.on ? camStop() : camStart(); });
+$("camOff").addEventListener("click", camStop);
+$("camCalib").addEventListener("click", ()=>{ if(!CAM.on) return; CAM.calib=[]; CAM.state="calibrate";
+  camStatus("Calibrate: tap the "+CALIB_TARGETS[0].name+"."); camDrawOverlay(); });
+$("camRef").addEventListener("click", ()=>{ if(!CAM.on || !CAM.gray) return;
+  if(!CAM.H){ camStatus("Calibrate first (① Calibrate)."); return; }
+  CAM.ref=Float32Array.from(CAM.gray); CAM.prev=Float32Array.from(CAM.gray);
+  CAM.moving=false; CAM.settle=0; CAM.cooldown=10; camStatus("Tracking… throw your darts."); });
+$("camOverlay").addEventListener("click", camTap);
+window.addEventListener("resize", camResize);
 
 /* =================================================================
    INIT
